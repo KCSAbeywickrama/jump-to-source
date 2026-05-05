@@ -1,0 +1,85 @@
+name: Release VSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release. Leave empty to use package.json."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub release as a prerelease."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release VSIX from main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$RELEASE_VERSION" ]; then
+            npm version "$RELEASE_VERSION" --no-git-tag-version
+          fi
+
+          VERSION="$(node -p "require('./package.json').version")"
+          COMMIT="$(git rev-parse HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Build VSIX
+        run: npm run package
+
+      - name: Locate VSIX
+        id: vsix
+        shell: bash
+        run: |
+          VSIX="$(find . -maxdepth 1 -name '*.vsix' -print -quit)"
+          if [ -z "$VSIX" ]; then
+            echo "No VSIX file was generated." >&2
+            exit 1
+          fi
+
+          echo "path=$VSIX" >> "$GITHUB_OUTPUT"
+          echo "name=${VSIX#./}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Jump to Source ${{ steps.version.outputs.version }}
+          body: |
+            VSIX built from the main branch.
+
+            Commit: ${{ steps.version.outputs.commit }}
+          prerelease: ${{ inputs.prerelease }}
+          files: ${{ steps.vsix.outputs.path }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
