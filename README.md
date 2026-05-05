@@ -16,11 +16,17 @@ The extension searches for a matching `.ts` or `.tsx` file, opens it, and moves 
 
 ## Development
 
-Install dependencies and compile:
+Install dependencies:
 
 ```sh
 npm install
-npm run compile
 ```
+
+Available scripts:
+
+- `npm run compile` - compile the extension into `out/`.
+- `npm run watch` - compile continuously while developing.
+- `npm run package` - build a `.vsix` package with `vsce`.
+- `npm run code-install` - compile, package, and install the generated `.vsix` into VS Code.
 
 Open this folder in VS Code and press F5 to launch an Extension Development Host.
