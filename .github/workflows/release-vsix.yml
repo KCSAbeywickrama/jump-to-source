@@ -72,7 +72,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Jump to Source ${{ steps.version.outputs.version }}
+          name: Jump to Source v${{ steps.version.outputs.version }}
           body: |
             VSIX built from the main branch.
 
