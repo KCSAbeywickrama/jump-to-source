@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 
 const COMMAND_ID = 'jump-to-source.jumpToSource';
 const DTS_SUFFIX = '.d.ts';
+const SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const;
 const DEFINITION_KEYWORDS = /\b(export|function|class|const|let|type|interface)\b/;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -25,11 +26,11 @@ async function jumpToSource(): Promise<void> {
   const declarationPath = editor.document.uri.fsPath;
   const cursorPosition = editor.selection.active;
   const symbol = getSymbolUnderCursor(editor.document, cursorPosition);
-  const sourceFileName = getSourceFileName(declarationPath);
-  const sourceUri = await resolveSourceUri(declarationPath, sourceFileName);
+  const sourceBaseName = getSourceBaseName(declarationPath);
+  const sourceUri = await resolveSourceUri(declarationPath, sourceBaseName);
 
   if (!sourceUri) {
-    vscode.window.showErrorMessage(`Could not find source file for ${sourceFileName}`);
+    vscode.window.showErrorMessage(`Could not find source file for ${formatSourceFileOptions(sourceBaseName)}`);
     return;
   }
 
@@ -56,19 +57,16 @@ function getSymbolUnderCursor(document: vscode.TextDocument, position: vscode.Po
   return symbol.length > 0 ? symbol : undefined;
 }
 
-function getSourceFileName(declarationPath: string): string {
+function getSourceBaseName(declarationPath: string): string {
   const fileName = path.basename(declarationPath);
-  return `${fileName.slice(0, -DTS_SUFFIX.length)}.ts`;
+  return fileName.slice(0, -DTS_SUFFIX.length);
 }
 
 async function resolveSourceUri(
   declarationPath: string,
-  sourceFileName: string
+  sourceBaseName: string
 ): Promise<vscode.Uri | undefined> {
-  const matches = await vscode.workspace.findFiles(
-    `**/${sourceFileName}`,
-    '{**/node_modules/**,**/*.d.ts}'
-  );
+  const matches = await findSourceCandidates(sourceBaseName);
 
   if (matches.length === 0) {
     return undefined;
@@ -78,7 +76,7 @@ async function resolveSourceUri(
     return matches[0];
   }
 
-  const pathFilteredMatch = filterByDeclarationPath(declarationPath, sourceFileName, matches);
+  const pathFilteredMatch = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
   if (pathFilteredMatch) {
     return pathFilteredMatch;
   }
@@ -86,9 +84,22 @@ async function resolveSourceUri(
   return pickSourceFile(matches);
 }
 
+async function findSourceCandidates(sourceBaseName: string): Promise<vscode.Uri[]> {
+  const candidateGroups = await Promise.all(
+    SOURCE_EXTENSIONS.map((extension) =>
+      vscode.workspace.findFiles(
+        `**/${sourceBaseName}${extension}`,
+        '{**/node_modules/**,**/*.d.ts}'
+      )
+    )
+  );
+
+  return candidateGroups.flat();
+}
+
 function filterByDeclarationPath(
   declarationPath: string,
-  sourceFileName: string,
+  sourceBaseName: string,
   matches: readonly vscode.Uri[]
 ): vscode.Uri | undefined {
   const declarationDirectorySegments = path.dirname(declarationPath).split(path.sep).filter(Boolean);
@@ -96,8 +107,12 @@ function filterByDeclarationPath(
 
   for (let segmentCount = 1; segmentCount <= declarationDirectorySegments.length; segmentCount += 1) {
     const suffixSegments = declarationDirectorySegments.slice(-segmentCount);
-    const expectedSuffix = path.join(...suffixSegments, sourceFileName);
-    const filtered = candidates.filter((uri) => normalizePath(uri.fsPath).endsWith(normalizePath(expectedSuffix)));
+    const expectedSuffixes = SOURCE_EXTENSIONS.map((extension) =>
+      normalizePath(path.join(...suffixSegments, `${sourceBaseName}${extension}`))
+    );
+    const filtered = candidates.filter((uri) =>
+      expectedSuffixes.some((expectedSuffix) => normalizePath(uri.fsPath).endsWith(expectedSuffix))
+    );
 
     if (filtered.length === 1) {
       return filtered[0];
@@ -164,4 +179,8 @@ function normalizePath(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatSourceFileOptions(sourceBaseName: string): string {
+  return SOURCE_EXTENSIONS.map((extension) => `${sourceBaseName}${extension}`).join(' or ');
 }
