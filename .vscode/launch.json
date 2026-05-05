@@ -8,10 +8,18 @@
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
+      "sourceMaps": true,
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"
       ],
-      "preLaunchTask": "${defaultBuildTask}"
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/**",
+        "!**/node_modules/**"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "preLaunchTask": "npm: watch"
     }
   ]
 }
