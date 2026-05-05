@@ -3,22 +3,27 @@
   "displayName": "Jump to Source",
   "description": "Jump from a TypeScript declaration file to its source file.",
   "version": "0.0.1",
-  "publisher": "local",
+  "publisher": "chamod-abeywickrama",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KCSAbeywickrama/jump-to-source.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages"
   ],
   "activationEvents": [
-    "onCommand:jump-to-source.jumpToSource"
+    "onCommand:jump-to-source.jump"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "jump-to-source.jumpToSource",
-        "title": "Jump to Source"
+        "command": "jump-to-source.jump",
+        "title": "Jump to Source (*.d.ts -> *.ts/tsx)"
       }
     ]
   },
