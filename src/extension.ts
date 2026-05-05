@@ -36,9 +36,10 @@ async function jumpToSource(): Promise<void> {
 
   const sourceDocument = await vscode.workspace.openTextDocument(sourceUri);
   const sourceEditor = await vscode.window.showTextDocument(sourceDocument);
+  const fallbackPosition = clampPosition(sourceDocument, cursorPosition);
   const targetPosition = symbol
-    ? findBestSymbolPosition(sourceDocument, symbol) ?? clampPosition(sourceDocument, cursorPosition)
-    : clampPosition(sourceDocument, cursorPosition);
+    ? findBestSymbolPosition(sourceDocument, symbol) ?? fallbackPosition
+    : fallbackPosition;
 
   sourceEditor.selection = new vscode.Selection(targetPosition, targetPosition);
   sourceEditor.revealRange(
@@ -76,15 +77,12 @@ async function resolveSourceUri(
     return matches[0];
   }
 
-  const pathsFilteredMatch = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
-  if (pathsFilteredMatch) {
-    if (pathsFilteredMatch.length === 1) {
-      return pathsFilteredMatch[0];
-    }
-    return pickSourceFile(pathsFilteredMatch);
+  const filteredMatches = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
+  if (filteredMatches.length === 1) {
+    return filteredMatches[0];
   }
 
-  return undefined;
+  return pickSourceFile(filteredMatches);
 }
 
 async function findSourceCandidates(sourceBaseName: string): Promise<vscode.Uri[]> {
@@ -104,7 +102,7 @@ function filterByDeclarationPath(
   declarationPath: string,
   sourceBaseName: string,
   matches: readonly vscode.Uri[]
-): vscode.Uri[] | undefined {
+): vscode.Uri[] {
   const declarationDirectorySegments = path.dirname(declarationPath).split(path.sep).filter(Boolean);
   let candidates = [...matches];
 
@@ -130,7 +128,7 @@ function filterByDeclarationPath(
     }
   }
 
-  return undefined;
+  return candidates;
 }
 
 async function pickSourceFile(matches: readonly vscode.Uri[]): Promise<vscode.Uri | undefined> {
