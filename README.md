@@ -2,6 +2,10 @@
 
 Jump to Source is a minimal VS Code extension that opens the TypeScript or TSX source file behind a `.d.ts` declaration file.
 
+## Why
+
+This extension is a quick workaround for large codebases where TypeScript configuration does not fully support jumping between packages. In those projects, VS Code may land on generated `.d.ts` files instead of the original source. Jump to Source uses filename and path matching to find the corresponding `.ts` or `.tsx` file directly.
+
 ## Usage
 
 1. Open a `.d.ts` file.
