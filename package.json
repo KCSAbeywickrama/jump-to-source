@@ -16,7 +16,9 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onCommand:jump-to-source.jump"
+    "onCommand:jump-to-source.jump",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
   ],
   "main": "./out/extension.js",
   "contributes": {

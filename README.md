@@ -14,6 +14,8 @@ This extension is a quick workaround for large codebases where TypeScript config
 
 The extension searches for a matching `.ts` or `.tsx` file, opens it, and moves the cursor to the best matching symbol definition.
 
+You can also use VS Code's normal Go to Definition behavior from a `.d.ts` file, including `Ctrl+Click`, `Cmd+Click`, and `F12`. When the extension can resolve a matching source file, it contributes that source location as a definition target.
+
 ## Development
 
 Install dependencies:

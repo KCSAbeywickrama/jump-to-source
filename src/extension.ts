@@ -7,8 +7,20 @@ const SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const;
 const DEFINITION_KEYWORDS = /\b(export|function|class|const|let|type|interface)\b/;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const disposable = vscode.commands.registerCommand(COMMAND_ID, jumpToSource);
-  context.subscriptions.push(disposable);
+  context.subscriptions.push(
+    vscode.commands.registerCommand(COMMAND_ID, jumpToSource),
+    vscode.languages.registerDefinitionProvider(
+      [
+        { scheme: 'file', language: 'typescript', pattern: '**/*.d.ts' },
+        { scheme: 'file', language: 'typescriptreact', pattern: '**/*.d.ts' }
+      ],
+      {
+        provideDefinition(document, position) {
+          return provideSourceDefinition(document, position);
+        }
+      }
+    )
+  );
 }
 
 export function deactivate(): void {
@@ -25,26 +37,66 @@ async function jumpToSource(): Promise<void> {
 
   const declarationPath = editor.document.uri.fsPath;
   const cursorPosition = editor.selection.active;
-  const symbol = getSymbolUnderCursor(editor.document, cursorPosition);
   const sourceBaseName = getSourceBaseName(declarationPath);
-  const sourceUri = await resolveSourceUri(declarationPath, sourceBaseName);
+  const resolution = await resolveSourceUris(declarationPath, sourceBaseName);
 
-  if (!sourceUri) {
+  if (resolution.matches.length === 0) {
     vscode.window.showErrorMessage(`Could not find source file for ${formatSourceFileOptions(sourceBaseName)}`);
+    return;
+  }
+
+  const sourceUri = resolution.resolved ?? await pickSourceFile(resolution.matches);
+  if (!sourceUri) {
     return;
   }
 
   const sourceDocument = await vscode.workspace.openTextDocument(sourceUri);
   const sourceEditor = await vscode.window.showTextDocument(sourceDocument);
-  const targetPosition = symbol
-    ? findBestSymbolPosition(sourceDocument, symbol) ?? clampPosition(sourceDocument, cursorPosition)
-    : clampPosition(sourceDocument, cursorPosition);
+  const targetPosition = await getTargetPosition(editor.document, cursorPosition, sourceDocument);
 
   sourceEditor.selection = new vscode.Selection(targetPosition, targetPosition);
   sourceEditor.revealRange(
     new vscode.Range(targetPosition, targetPosition),
     vscode.TextEditorRevealType.InCenter
   );
+}
+
+async function provideSourceDefinition(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): Promise<vscode.Definition | undefined> {
+  if (!document.uri.fsPath.endsWith(DTS_SUFFIX)) {
+    return undefined;
+  }
+
+  const sourceBaseName = getSourceBaseName(document.uri.fsPath);
+  const resolution = await resolveSourceUris(document.uri.fsPath, sourceBaseName);
+
+  if (resolution.matches.length === 0) {
+    return undefined;
+  }
+
+  const sourceUris = resolution.resolved ? [resolution.resolved] : resolution.matches;
+  const locations = await Promise.all(
+    sourceUris.map(async (sourceUri) => {
+      const sourceDocument = await vscode.workspace.openTextDocument(sourceUri);
+      const targetPosition = await getTargetPosition(document, position, sourceDocument);
+      return new vscode.Location(sourceUri, targetPosition);
+    })
+  );
+
+  return locations.length === 1 ? locations[0] : locations;
+}
+
+async function getTargetPosition(
+  declarationDocument: vscode.TextDocument,
+  declarationPosition: vscode.Position,
+  sourceDocument: vscode.TextDocument
+): Promise<vscode.Position> {
+  const symbol = getSymbolUnderCursor(declarationDocument, declarationPosition);
+  return symbol
+    ? findBestSymbolPosition(sourceDocument, symbol) ?? clampPosition(sourceDocument, declarationPosition)
+    : clampPosition(sourceDocument, declarationPosition);
 }
 
 function getSymbolUnderCursor(document: vscode.TextDocument, position: vscode.Position): string | undefined {
@@ -62,26 +114,22 @@ function getSourceBaseName(declarationPath: string): string {
   return fileName.slice(0, -DTS_SUFFIX.length);
 }
 
-async function resolveSourceUri(
+async function resolveSourceUris(
   declarationPath: string,
   sourceBaseName: string
-): Promise<vscode.Uri | undefined> {
+): Promise<{ matches: vscode.Uri[]; resolved?: vscode.Uri }> {
   const matches = await findSourceCandidates(sourceBaseName);
 
-  if (matches.length === 0) {
-    return undefined;
-  }
-
   if (matches.length === 1) {
-    return matches[0];
+    return { matches, resolved: matches[0] };
   }
 
   const pathFilteredMatch = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
   if (pathFilteredMatch) {
-    return pathFilteredMatch;
+    return { matches, resolved: pathFilteredMatch };
   }
 
-  return pickSourceFile(matches);
+  return { matches };
 }
 
 async function findSourceCandidates(sourceBaseName: string): Promise<vscode.Uri[]> {
