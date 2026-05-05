@@ -2,7 +2,7 @@
   "name": "jump-to-source",
   "displayName": "Jump to Source",
   "description": "Jump from a TypeScript declaration file to its source file.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "chamod-abeywickrama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
