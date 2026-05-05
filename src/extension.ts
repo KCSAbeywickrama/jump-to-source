@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const COMMAND_ID = 'jump-to-source.jumpToSource';
+const COMMAND_ID = 'jump-to-source.jump';
 const DTS_SUFFIX = '.d.ts';
 const SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const;
 const DEFINITION_KEYWORDS = /\b(export|function|class|const|let|type|interface)\b/;
