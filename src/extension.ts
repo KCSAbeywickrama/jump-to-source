@@ -76,12 +76,15 @@ async function resolveSourceUri(
     return matches[0];
   }
 
-  const pathFilteredMatch = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
-  if (pathFilteredMatch) {
-    return pathFilteredMatch;
+  const pathsFilteredMatch = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
+  if (pathsFilteredMatch) {
+    if (pathsFilteredMatch.length === 1) {
+      return pathsFilteredMatch[0];
+    }
+    return pickSourceFile(pathsFilteredMatch);
   }
 
-  return pickSourceFile(matches);
+  return undefined;
 }
 
 async function findSourceCandidates(sourceBaseName: string): Promise<vscode.Uri[]> {
@@ -101,7 +104,7 @@ function filterByDeclarationPath(
   declarationPath: string,
   sourceBaseName: string,
   matches: readonly vscode.Uri[]
-): vscode.Uri | undefined {
+): vscode.Uri[] | undefined {
   const declarationDirectorySegments = path.dirname(declarationPath).split(path.sep).filter(Boolean);
   let candidates = [...matches];
 
@@ -114,8 +117,12 @@ function filterByDeclarationPath(
       expectedSuffixes.some((expectedSuffix) => normalizePath(uri.fsPath).endsWith(expectedSuffix))
     );
 
+    if (filtered.length === 0) {
+      return candidates;
+    }
+
     if (filtered.length === 1) {
-      return filtered[0];
+      return filtered;
     }
 
     if (filtered.length > 1) {
