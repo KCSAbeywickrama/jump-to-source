@@ -69,17 +69,24 @@ jobs:
           echo "name=${VSIX#./}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Jump to Source v${{ steps.version.outputs.version }}
-          body: |
-            VSIX built from the main branch.
-
-            Commit: ${{ steps.version.outputs.commit }}
-          prerelease: ${{ inputs.prerelease }}
-          files: ${{ steps.vsix.outputs.path }}
-          fail_on_unmatched_files: true
-          generate_release_notes: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          TAG_NAME: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_COMMIT: ${{ steps.version.outputs.commit }}
+          VSIX_PATH: ${{ steps.vsix.outputs.path }}
+        run: |
+          PRERELEASE_FLAG=()
+          if [ "$PRERELEASE" = "true" ]; then
+            PRERELEASE_FLAG=(--prerelease)
+          fi
+
+          gh release create "$TAG_NAME" "$VSIX_PATH" \
+            --title "Jump to Source v$RELEASE_VERSION" \
+            --notes "VSIX built from the main branch.
+
+          Commit: $RELEASE_COMMIT" \
+            --generate-notes \
+            "${PRERELEASE_FLAG[@]}"
