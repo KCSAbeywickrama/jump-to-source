@@ -4,7 +4,31 @@ import * as vscode from 'vscode';
 const COMMAND_ID = 'jump-to-source.jump';
 const DTS_SUFFIX = '.d.ts';
 const SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const;
+const PACKAGE_SOURCE_DIRECTORIES = ['src', 'source'];
+const GENERATED_PATH_SEGMENTS = new Set(['lib', 'dist', 'build', 'out', 'types', 'declarations']);
 const DEFINITION_KEYWORDS = /\b(export|function|class|const|let|type|interface)\b/;
+
+interface PackageJson {
+  name?: string;
+  types?: string;
+  typings?: string;
+  main?: string;
+  module?: string;
+}
+
+interface RushJson {
+  projects?: Array<{
+    packageName?: string;
+    projectFolder?: string;
+  }>;
+}
+
+interface PackageContext {
+  packageRoot: string;
+  packageJson: PackageJson;
+  rushRoot?: string;
+  rushJson?: RushJson;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const disposable = vscode.commands.registerCommand(COMMAND_ID, jumpToSource);
@@ -77,6 +101,15 @@ async function resolveSourceUri(
     return matches[0];
   }
 
+  const packageMatches = await filterByPackageContext(declarationPath, matches);
+  if (packageMatches.length === 1) {
+    return packageMatches[0];
+  }
+
+  if (packageMatches.length > 1) {
+    return pickSourceFile(packageMatches);
+  }
+
   const filteredMatches = filterByDeclarationPath(declarationPath, sourceBaseName, matches);
   if (filteredMatches.length === 1) {
     return filteredMatches[0];
@@ -96,6 +129,317 @@ async function findSourceCandidates(sourceBaseName: string): Promise<vscode.Uri[
   );
 
   return candidateGroups.flat();
+}
+
+async function filterByPackageContext(
+  declarationPath: string,
+  matches: readonly vscode.Uri[]
+): Promise<vscode.Uri[]> {
+  const context = await getPackageContext(declarationPath);
+  if (!context) {
+    return [];
+  }
+
+  const strictMatches = filterByStrictOutputRewrite(declarationPath, matches, context);
+  if (strictMatches.length > 0) {
+    return strictMatches;
+  }
+
+  const preferredRoots = getPreferredSourceRoots(declarationPath, context);
+  for (const root of preferredRoots) {
+    const matchesUnderRoot = filterUrisUnderRoot(matches, root);
+    if (matchesUnderRoot.length > 0) {
+      return matchesUnderRoot;
+    }
+  }
+
+  return [];
+}
+
+async function getPackageContext(declarationPath: string): Promise<PackageContext | undefined> {
+  const workspaceRoot = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(declarationPath))?.uri.fsPath;
+  const packageJsonPath = await findAncestorFile(path.dirname(declarationPath), 'package.json', workspaceRoot);
+  if (!packageJsonPath) {
+    return undefined;
+  }
+
+  const packageJson = await readJsonFile<PackageJson>(packageJsonPath);
+  if (!packageJson) {
+    return undefined;
+  }
+
+  const rushJsonPath = await findAncestorFile(path.dirname(packageJsonPath), 'rush.json', workspaceRoot);
+  const rushJson = rushJsonPath ? await readJsonFile<RushJson>(rushJsonPath) : undefined;
+
+  return {
+    packageRoot: path.dirname(packageJsonPath),
+    packageJson,
+    rushRoot: rushJsonPath ? path.dirname(rushJsonPath) : undefined,
+    rushJson
+  };
+}
+
+function getPreferredSourceRoots(declarationPath: string, context: PackageContext): string[] {
+  const roots: string[] = [];
+  const rushProjectRoot = getRushProjectRoot(context);
+
+  if (rushProjectRoot) {
+    roots.push(...getPackageSourceRoots(rushProjectRoot));
+  }
+
+  roots.push(...getPackageSourceRoots(context.packageRoot));
+
+  return dedupePaths(roots);
+}
+
+function filterByStrictOutputRewrite(
+  declarationPath: string,
+  matches: readonly vscode.Uri[],
+  context: PackageContext
+): vscode.Uri[] {
+  const relativeOutputPath = getRelativePathAfterGeneratedSegment(declarationPath);
+  if (!relativeOutputPath) {
+    return [];
+  }
+
+  const sourceRoots = getStrictSourceRoots(context);
+  const candidatePaths = sourceRoots.flatMap((root) =>
+    SOURCE_EXTENSIONS.map((extension) =>
+      normalizePath(path.join(root, replaceDeclarationExtension(relativeOutputPath, extension)))
+    )
+  );
+  const candidatePathSet = new Set(candidatePaths);
+
+  return matches.filter((uri) => candidatePathSet.has(normalizePath(uri.fsPath)));
+}
+
+function getStrictSourceRoots(context: PackageContext): string[] {
+  const packageRoots = [getRushProjectRoot(context), context.packageRoot].filter((root): root is string => Boolean(root));
+  return dedupePaths(
+    packageRoots.flatMap((root) =>
+      PACKAGE_SOURCE_DIRECTORIES.map((directory) => path.join(root, directory))
+    )
+  );
+}
+
+function getRelativePathAfterGeneratedSegment(declarationPath: string): string | undefined {
+  const directorySegments = path.dirname(declarationPath).split(path.sep);
+  const generatedSegmentIndex = directorySegments.findIndex((segment) =>
+    GENERATED_PATH_SEGMENTS.has(segment.toLowerCase())
+  );
+
+  if (generatedSegmentIndex === -1) {
+    return undefined;
+  }
+
+  const relativeDirectorySegments = directorySegments.slice(generatedSegmentIndex + 1);
+  return path.join(...relativeDirectorySegments, path.basename(declarationPath));
+}
+
+function replaceDeclarationExtension(relativePath: string, extension: string): string {
+  return relativePath.endsWith(DTS_SUFFIX)
+    ? `${relativePath.slice(0, -DTS_SUFFIX.length)}${extension}`
+    : relativePath;
+}
+
+function getRushProjectRoot(context: PackageContext): string | undefined {
+  if (!context.rushRoot || !context.rushJson?.projects || !context.packageJson.name) {
+    return undefined;
+  }
+
+  const project = context.rushJson.projects.find(
+    (candidate) => candidate.packageName === context.packageJson.name && candidate.projectFolder
+  );
+
+  return project?.projectFolder ? path.resolve(context.rushRoot, project.projectFolder) : undefined;
+}
+
+function getPackageSourceRoots(packageRoot: string): string[] {
+  return [
+    ...PACKAGE_SOURCE_DIRECTORIES.map((directory) => path.join(packageRoot, directory)),
+    packageRoot
+  ];
+}
+
+function filterUrisUnderRoot(uris: readonly vscode.Uri[], root: string): vscode.Uri[] {
+  const normalizedRoot = normalizePath(root);
+  return uris.filter((uri) => {
+    const normalizedPath = normalizePath(uri.fsPath);
+    return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+  });
+}
+
+async function findAncestorFile(
+  startDirectory: string,
+  fileName: string,
+  stopDirectory?: string
+): Promise<string | undefined> {
+  let currentDirectory = startDirectory;
+  const normalizedStopDirectory = stopDirectory ? normalizePath(stopDirectory) : undefined;
+
+  while (true) {
+    const candidate = path.join(currentDirectory, fileName);
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+
+    if (normalizedStopDirectory && normalizePath(currentDirectory) === normalizedStopDirectory) {
+      return undefined;
+    }
+
+    const parentDirectory = path.dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      return undefined;
+    }
+
+    currentDirectory = parentDirectory;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJsonFile<T>(filePath: string): Promise<T | undefined> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
+    const json = Buffer.from(bytes).toString('utf8');
+    return JSON.parse(stripTrailingCommas(stripJsonComments(json))) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function stripJsonComments(json: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < json.length; index += 1) {
+    const current = json[index];
+    const next = json[index + 1];
+
+    if (inString) {
+      result += current;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (current === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (current === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (current === '"') {
+      inString = true;
+      result += current;
+      continue;
+    }
+
+    if (current === '/' && next === '/') {
+      while (index < json.length && json[index] !== '\n') {
+        index += 1;
+      }
+      result += '\n';
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < json.length && !(json[index] === '*' && json[index + 1] === '/')) {
+        result += json[index] === '\n' ? '\n' : ' ';
+        index += 1;
+      }
+      index += 1;
+      continue;
+    }
+
+    result += current;
+  }
+
+  return result;
+}
+
+function stripTrailingCommas(json: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < json.length; index += 1) {
+    const current = json[index];
+
+    if (inString) {
+      result += current;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (current === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (current === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (current === '"') {
+      inString = true;
+      result += current;
+      continue;
+    }
+
+    if (current === ',') {
+      let lookahead = index + 1;
+      while (/\s/.test(json[lookahead] ?? '')) {
+        lookahead += 1;
+      }
+
+      if (json[lookahead] === '}' || json[lookahead] === ']') {
+        continue;
+      }
+    }
+
+    result += current;
+  }
+
+  return result;
+}
+
+function dedupePaths(paths: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const currentPath of paths) {
+    const normalizedPath = normalizePath(currentPath);
+    if (seen.has(normalizedPath)) {
+      continue;
+    }
+
+    seen.add(normalizedPath);
+    deduped.push(currentPath);
+  }
+
+  return deduped;
 }
 
 function filterByDeclarationPath(

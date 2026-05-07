@@ -14,6 +14,10 @@ This extension is a quick workaround for large codebases where TypeScript config
 
 The extension searches for a matching `.ts` or `.tsx` file, opens it, and moves the cursor to the best matching symbol definition.
 
+When multiple files have the same name, the extension first tries package-aware resolution. It reads the nearest `package.json`, checks for an ancestor `rush.json`, and uses Rush `packageName` / `projectFolder` metadata when available to prefer the source package folder. For common build output folders such as `lib`, `dist`, `build`, `out`, `types`, and `declarations`, it preserves the relative path and checks exact source paths like `src/index.ts` or `source/foo/bar.tsx`.
+
+If package metadata cannot identify one source file, the extension falls back to path-segment matching and then a QuickPick list.
+
 ## Development
 
 Install dependencies:
