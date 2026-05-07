@@ -145,7 +145,7 @@ async function filterByPackageContext(
     return strictMatches;
   }
 
-  const preferredRoots = getPreferredSourceRoots(declarationPath, context);
+  const preferredRoots = getPreferredSourceRoots(context);
   for (const root of preferredRoots) {
     const matchesUnderRoot = filterUrisUnderRoot(matches, root);
     if (matchesUnderRoot.length > 0) {
@@ -179,17 +179,13 @@ async function getPackageContext(declarationPath: string): Promise<PackageContex
   };
 }
 
-function getPreferredSourceRoots(declarationPath: string, context: PackageContext): string[] {
-  const roots: string[] = [];
+function getPreferredSourceRoots(context: PackageContext): string[] {
   const rushProjectRoot = getRushProjectRoot(context);
 
-  if (rushProjectRoot) {
-    roots.push(...getPackageSourceRoots(rushProjectRoot));
-  }
-
-  roots.push(...getPackageSourceRoots(context.packageRoot));
-
-  return dedupePaths(roots);
+  return dedupePaths([
+    ...(rushProjectRoot ? getPackageSourceRoots(rushProjectRoot) : []),
+    ...getPackageSourceRoots(context.packageRoot)
+  ]);
 }
 
 function filterByStrictOutputRewrite(
