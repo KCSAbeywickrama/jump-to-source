@@ -4,7 +4,7 @@ Jump to Source is a minimal VS Code extension that opens the TypeScript or TSX s
 
 ## Why
 
-This extension is a quick workaround for large codebases where TypeScript configuration does not enable jumping between packages. In those projects, VS Code may land on generated `.d.ts` files instead of the original source. This extension uses filename and incremental path segments matching to find the corresponding `.ts` or `.tsx` file directly.
+This extension is a quick workaround for large codebases where TypeScript configuration does not enable jumping between packages. In those projects, VS Code may land on generated `.d.ts` files instead of the original source.
 
 ## Usage
 
@@ -14,9 +14,15 @@ This extension is a quick workaround for large codebases where TypeScript config
 
 The extension searches for a matching `.ts` or `.tsx` file, opens it, and moves the cursor to the best matching symbol definition.
 
-When multiple files have the same name, the extension first tries package-aware resolution. It reads the nearest `package.json`, checks for an ancestor `rush.json`, and uses Rush `packageName` / `projectFolder` metadata when available to prefer the source package folder. For common build output folders such as `lib`, `dist`, `build`, `out`, `types`, and `declarations`, it preserves the relative path and checks exact source paths like `src/index.ts` or `source/foo/bar.tsx`.
+## How it works
 
-If package metadata cannot identify one source file, the extension falls back to path-segment matching and then a QuickPick list.
+The extension first searches the workspace for exact filename candidates, such as `index.ts` and `index.tsx` for `index.d.ts`.
+
+When multiple files have the same name, it tries package-aware resolution. It reads the nearest `package.json`, checks for an ancestor `rush.json`, and uses Rush `packageName` / `projectFolder` metadata when available to prefer the source package folder.
+
+For common build output folders such as `lib`, `dist`, `build`, `out`, `types`, and `declarations`, it preserves the relative path and checks exact source paths like `src/index.ts` or `source/foo/bar.tsx`.
+
+If package metadata cannot identify one source file, the extension falls back to incremental path segment matching.
 
 ## Development
 
